@@ -424,6 +424,24 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 "use strict";
 const RAW = JSON.parse(document.getElementById('adsdata').textContent);
 
+/* ---------- persistence: publish top-ups back to this artifact so they stick for every viewer ---------- */
+const PRISTINE_HTML = document.documentElement.outerHTML;
+let ARTIFACT_API = null;
+let artifactReadyCallback = null;
+const ARTIFACT_READY = (async () => {
+  try{
+    if(window.claude && window.claude.use) ARTIFACT_API = await window.claude.use('artifact');
+  }catch(e){ ARTIFACT_API = null; }
+  if(artifactReadyCallback) artifactReadyCallback();
+})();
+function buildPublishDoc(newRaw){
+  const marker = '<script id="adsdata" type="application/json">';
+  const start = PRISTINE_HTML.indexOf(marker) + marker.length;
+  const end = PRISTINE_HTML.indexOf('</script>', start);
+  if(start < 0 || end < 0) return null;
+  return '<!doctype html>\n' + PRISTINE_HTML.slice(0, start) + JSON.stringify(newRaw) + PRISTINE_HTML.slice(end);
+}
+
 /* ---------- everything below derives from the database export (RAW) ---------- */
 const PLATFORMS = RAW.platforms;                       // [{name, light, dark, order}] from the platforms table
 const PLATS = PLATFORMS.map(p=>p.name);
@@ -1492,19 +1510,55 @@ function renderWallets(){
     led.appendChild(s);
   }
 }
+function renderWalletHint(state){
+  const hint = document.getElementById('wHint');
+  if(state==='saving'){
+    hint.innerHTML = `Saving this top-up to the live dashboard…`;
+  } else if(state==='failed'){
+    hint.innerHTML = `Couldn't save that top-up permanently, so it's showing as a preview only for this session. Try again, or tell Claude in the chat — e.g. <b>"topped up ${PLATS[0]} 2,00,000 today"</b>.`;
+  } else if(ARTIFACT_API){
+    hint.innerHTML = `Top-ups added here are saved permanently — everyone who opens this dashboard will see the updated balance.`;
+  } else {
+    hint.innerHTML = `Top-ups added here preview instantly in this view. To record one permanently, tell Claude in the chat — e.g. <b>"topped up ${PLATS[0]} 2,00,000 today"</b> — and the live dashboard is updated for good.`;
+  }
+}
 function initWallet(){
   const sel = document.getElementById('wPlat');
   for(const p of PLATS) sel.add(new Option(p, p));
-  document.getElementById('wHint').innerHTML =
-    `Top-ups added here preview instantly in this view. To record one permanently, tell Claude in the chat — e.g. <b>“topped up ${PLATS[0]} 2,00,000 today”</b> — and the live dashboard is updated for good.`;
+  renderWalletHint();
+  artifactReadyCallback = () => renderWalletHint();
   document.getElementById('wDate').value = new Date().toISOString().slice(0,10);
-  document.getElementById('wAdd').addEventListener('click', ()=>{
+  const addBtn = document.getElementById('wAdd');
+  addBtn.addEventListener('click', async ()=>{
     const amt = parseFloat(document.getElementById('wAmt').value);
     if(!amt || amt<=0) return;
-    previewLedger.push({platform:sel.value, date:document.getElementById('wDate').value,
-      type:'topup', amount:amt, note:'session preview'});
-    document.getElementById('wAmt').value='';
-    renderWallets();
+    const entry = {platform:sel.value, date:document.getElementById('wDate').value, type:'topup', amount:amt, note:''};
+    if(ARTIFACT_API){
+      addBtn.disabled = true;
+      renderWalletHint('saving');
+      try{
+        const newRaw = JSON.parse(JSON.stringify(RAW));
+        newRaw.wallet.ledger = [...newRaw.wallet.ledger, entry];
+        const doc = buildPublishDoc(newRaw);
+        if(!doc) throw new Error('template marker not found');
+        await ARTIFACT_API.publish(doc);
+        RAW.wallet.ledger.push(entry);
+        document.getElementById('wAmt').value='';
+        renderWallets();
+        renderWalletHint();
+      }catch(e){
+        previewLedger.push({...entry, note:'session preview'});
+        document.getElementById('wAmt').value='';
+        renderWallets();
+        renderWalletHint('failed');
+      }finally{
+        addBtn.disabled = false;
+      }
+    } else {
+      previewLedger.push({...entry, note:'session preview'});
+      document.getElementById('wAmt').value='';
+      renderWallets();
+    }
   });
 }
 
