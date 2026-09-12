@@ -437,7 +437,7 @@ const ARTIFACT_READY = (async () => {
 function buildPublishDoc(newRaw){
   const marker = '<script id="adsdata" type="application/json">';
   const start = PRISTINE_HTML.indexOf(marker) + marker.length;
-  const end = PRISTINE_HTML.indexOf('</script>', start);
+  const end = PRISTINE_HTML.indexOf('<' + '/script>', start);
   if(start < 0 || end < 0) return null;
   const safeJson = JSON.stringify(newRaw).replace(/<\/script/gi, '<\\/script');
   return '<!doctype html>\n' + PRISTINE_HTML.slice(0, start) + safeJson + PRISTINE_HTML.slice(end);
