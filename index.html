@@ -439,7 +439,8 @@ function buildPublishDoc(newRaw){
   const start = PRISTINE_HTML.indexOf(marker) + marker.length;
   const end = PRISTINE_HTML.indexOf('</script>', start);
   if(start < 0 || end < 0) return null;
-  return '<!doctype html>\n' + PRISTINE_HTML.slice(0, start) + JSON.stringify(newRaw) + PRISTINE_HTML.slice(end);
+  const safeJson = JSON.stringify(newRaw).replace(/<\/script/gi, '<\\/script');
+  return '<!doctype html>\n' + PRISTINE_HTML.slice(0, start) + safeJson + PRISTINE_HTML.slice(end);
 }
 
 /* ---------- everything below derives from the database export (RAW) ---------- */
